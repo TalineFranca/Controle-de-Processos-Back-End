@@ -4,12 +4,12 @@
  * Uso:
  *   npm run seed
  *
- * O CSV possui seções identificadas por cabeçalhos textuais.
- * Este script detecta automaticamente cada seção, extrai unidade,
- * subunidade e localidade, e insere todos os policiais com a
- * ordem hierárquica calculada pelo modelo.
+ * O script detecta automaticamente encoding UTF-8 e Latin-1 (ISO-8859-1).
+ * Cada seção do CSV (GAB, CIA, PEL, GP) é identificada automaticamente.
  *
- * Variável de ambiente CSV_PATH pode sobrescrever o caminho padrão.
+ * Variáveis de ambiente:
+ *   CSV_PATH   — caminho para o arquivo CSV (padrão: data/efetivo.csv)
+ *   SEED_MODO  — 'upsert' (padrão) ou 'limpar'
  */
 
 import { readFileSync } from 'fs';
@@ -21,45 +21,62 @@ import { config } from 'dotenv';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: resolve(__dirname, '../../.env') });
 
-import Policial, { obterOrdemHierarquica } from '../modelos/Policial.js';
-
-// ─────────────────────────────────────────────
-// Parseia o CSV sem dependências externas
-// ─────────────────────────────────────────────
+import Policial, { obterOrdemHierarquica } from '../models/Policial.js';
 
 const CSV_PATH = process.env.CSV_PATH || resolve(__dirname, '../../data/efetivo.csv');
 
+// ─────────────────────────────────────────────
+// Leitura de CSV com detecção de encoding
+// ─────────────────────────────────────────────
+
 /**
- * Lê um CSV simples (sem header) e retorna array de arrays de strings.
+ * Tenta ler o CSV como UTF-8; se detectar caracteres inválidos,
+ * tenta como Latin-1 (comum em arquivos exportados do Excel no BR).
  */
 function lerCSV(caminho) {
-  const conteudo = readFileSync(caminho, 'utf-8');
+  let conteudo;
+
+  try {
+    const buffer = readFileSync(caminho);
+
+    // Detecta BOM UTF-8
+    if (buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+      conteudo = buffer.slice(3).toString('utf-8');
+    } else {
+      // Tenta UTF-8 primeiro
+      const tentativaUTF8 = buffer.toString('utf-8');
+      // Se tiver caractere de substituição (U+FFFD), provavelmente é Latin-1
+      if (tentativaUTF8.includes('\uFFFD')) {
+        conteudo = buffer.toString('latin1');
+      } else {
+        conteudo = tentativaUTF8;
+      }
+    }
+  } catch (erro) {
+    throw new Error(`Não foi possível ler o arquivo: ${erro.message}`);
+  }
+
   return conteudo
     .split('\n')
     .map((linha) =>
-      linha.split(',').map((cel) => cel.replace(/^"|"$/g, '').trim())
+      linha
+        .split(',')
+        .map((cel) => cel.replace(/^"|"$/g, '').trim())
     );
 }
 
-/**
- * Extrai localidade do nome da seção.
- * Ex: "1ª CIA PM/3º BPM (VILHENA)" → "VILHENA"
- * Ex: "3º GP PM/1º PEL PM/1ª CIA PM/3º BPM (NOVA CONQUISTA)" → "NOVA CONQUISTA"
- */
+// ─────────────────────────────────────────────
+// Extração de metadados das seções
+// ─────────────────────────────────────────────
+
 function extrairLocalidade(nomeSec) {
   const match = nomeSec.match(/\(([^)]+)\)/);
   return match ? match[1].trim().toUpperCase() : 'VILHENA';
 }
 
-/**
- * Extrai unidade principal da seção.
- * Ex: "1ª CIA PM/3º BPM (VILHENA)" → "1ª CIA PM"
- * Ex: "GAB COMANDO/3º BPM (Vilhena)" → "GAB COMANDO"
- */
 function extrairUnidade(nomeSec) {
   const semParenteses = nomeSec.replace(/\([^)]*\)/g, '').trim();
   const partes = semParenteses.split('/');
-  // Procura "CIA PM", "BPM", "GAB", "ESTADO MAIOR", "PCSv", "FORMAÇÃO"
   for (const parte of partes) {
     const p = parte.trim().toUpperCase();
     if (
@@ -73,17 +90,12 @@ function extrairUnidade(nomeSec) {
       return p;
     }
   }
-  // Fallback: primeira parte
   return partes[0].trim().toUpperCase();
 }
 
-/**
- * Extrai subunidade (pelotão/grupo) da seção quando existir.
- */
 function extrairSubunidade(nomeSec) {
   const sem = nomeSec.replace(/\([^)]*\)/g, '').trim();
   const partes = sem.split('/').map((p) => p.trim().toUpperCase());
-  // Subunidades são pelotões ou grupos de policiamento
   for (const p of partes) {
     if (p.match(/\d+[ºª]?\s*(PEL|GP|PELOTÃO)/)) return p;
   }
@@ -91,28 +103,27 @@ function extrairSubunidade(nomeSec) {
 }
 
 // ─────────────────────────────────────────────
-// Detecta se uma linha é cabeçalho de seção
-// (texto não numérico na primeira coluna,
-//  sem ser "NR. ORDEM" ou variações)
+// Detecção de linhas
 // ─────────────────────────────────────────────
-function ehCabecalhoSecaoJS(linha) {
+
+function ehCabecalhoSecao(linha) {
   const col0 = (linha[0] || '').trim();
   if (!col0) return false;
   if (/^NR\.?\s*ORDEM$/i.test(col0)) return false;
   if (/^POSTO/i.test(col0)) return false;
   if (/^\d+$/.test(col0)) return false;
-  if (/^IVAN|^Comandante|^Portaria/i.test(col0)) return false; // rodapé
+  if (/^IVAN|^Comandante|^Portaria/i.test(col0)) return false;
   return /[a-zA-ZÀ-ÿ]/.test(col0);
 }
 
 function ehLinhaPolicial(linha) {
-  const col0 = (linha[0] || '').trim();
-  return /^\d+$/.test(col0); // primeira coluna é número de ordem
+  return /^\d+$/.test((linha[0] || '').trim());
 }
 
 // ─────────────────────────────────────────────
-// Processa o CSV e monta array de policiais
+// Processamento principal
 // ─────────────────────────────────────────────
+
 function processarCSV(linhas) {
   const policiais = [];
   let secaoAtual = 'GAB COMANDO';
@@ -121,7 +132,7 @@ function processarCSV(linhas) {
   let localidadeAtual = 'VILHENA';
 
   for (const linha of linhas) {
-    if (ehCabecalhoSecaoJS(linha)) {
+    if (ehCabecalhoSecao(linha)) {
       secaoAtual = linha[0].trim();
       unidadeAtual = extrairUnidade(secaoAtual);
       subunidadeAtual = extrairSubunidade(secaoAtual);
@@ -142,7 +153,7 @@ function processarCSV(linhas) {
     policiais.push({
       nrOrdem,
       postoGraduacao,
-      nomeGuerra,
+      nomeGuerra: nomeGuerra || nomeCompleto.split(' ')[0],
       nomeCompleto,
       funcao,
       unidade: unidadeAtual,
@@ -158,8 +169,9 @@ function processarCSV(linhas) {
 }
 
 // ─────────────────────────────────────────────
-// Executa o seed
+// Execução do seed
 // ─────────────────────────────────────────────
+
 async function executarSeed() {
   const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/controle_processos_pm';
 
@@ -167,14 +179,13 @@ async function executarSeed() {
   console.log(`📄 CSV: ${CSV_PATH}`);
   console.log(`🗄️  MongoDB: ${mongoUri}\n`);
 
-  // Conecta ao MongoDB
   await mongoose.connect(mongoUri);
   console.log('[MongoDB] Conectado ✓\n');
 
-  // Lê e processa o CSV
   let linhas;
   try {
     linhas = lerCSV(CSV_PATH);
+    console.log(`📄 Linhas lidas: ${linhas.length}`);
   } catch (erro) {
     console.error(`❌ Erro ao ler CSV: ${erro.message}`);
     console.error(`   Verifique se o arquivo existe em: ${CSV_PATH}`);
@@ -187,10 +198,11 @@ async function executarSeed() {
 
   if (policiais.length === 0) {
     console.error('❌ Nenhum policial encontrado. Verifique o formato do CSV.');
+    console.error('   Esperado: coluna 0 = nrOrdem, 1 = posto, 2 = nomeGuerra, 3 = nomeCompleto, 4 = funcao');
     process.exit(1);
   }
 
-  // Mostra prévia das seções encontradas
+  // Exibe seções encontradas
   const secoes = [...new Set(policiais.map((p) => p.secaoOrigem))];
   console.log(`\n📍 Seções encontradas (${secoes.length}):`);
   secoes.forEach((s) => {
@@ -198,19 +210,17 @@ async function executarSeed() {
     console.log(`   • ${s} (${qtd} policiais)`);
   });
 
-  // Verifica se já existem dados
   const existentes = await Policial.countDocuments();
+  const modo = process.env.SEED_MODO || 'upsert';
+
   if (existentes > 0) {
-    console.log(`\n⚠️  Já existem ${existentes} policiais no banco.`);
-    const modo = process.env.SEED_MODO || 'upsert';
-    console.log(`   Modo: ${modo.toUpperCase()}\n`);
+    console.log(`\n⚠️  Já existem ${existentes} policiais no banco. Modo: ${modo.toUpperCase()}\n`);
 
     if (modo === 'limpar') {
       await Policial.deleteMany({});
       console.log('   Coleção limpa. Reinserindo...\n');
     } else {
-      // Modo upsert: atualiza existentes pelo nomeCompleto
-      console.log('   Executando upsert por nomeCompleto...\n');
+      // Upsert: atualiza pelo nomeCompleto
       let atualizados = 0;
       let inseridos = 0;
 
@@ -225,20 +235,19 @@ async function executarSeed() {
       }
 
       console.log(`✅ Seed concluído!`);
-      console.log(`   Inseridos:  ${inseridos}`);
+      console.log(`   Inseridos:   ${inseridos}`);
       console.log(`   Atualizados: ${atualizados}\n`);
       await mongoose.disconnect();
       return;
     }
   }
 
-  // Inserção em lote
   await Policial.insertMany(policiais, { ordered: false });
 
   const total = await Policial.countDocuments();
   console.log(`✅ Seed concluído! Total no banco: ${total} policiais\n`);
 
-  // Exemplos por hierarquia
+  // Amostra
   console.log('📋 Amostra por hierarquia:');
   const amostra = await Policial.find({}).sort({ ordemHierarquica: 1, nrOrdem: 1 }).limit(5);
   amostra.forEach((p) =>

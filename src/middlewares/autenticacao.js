@@ -1,11 +1,12 @@
 import jwt from 'jsonwebtoken';
 import ambiente from '../config/ambiente.js';
-import Usuario from '../modelos/Usuario.js';
+import Usuario from '../models/Usuario.js';
 import { manipuladorAsync } from '../utils/auxiliares.js';
 
 /**
  * Middleware de autenticação via JWT Bearer token.
  * Injeta req.usuario com o usuário autenticado.
+ * Inclui try/catch correto no jwt.verify.
  */
 export const autenticar = manipuladorAsync(async (req, res, next) => {
   const cabecalho = req.headers.authorization;
@@ -19,15 +20,20 @@ export const autenticar = manipuladorAsync(async (req, res, next) => {
 
   const token = cabecalho.split(' ')[1];
 
-  const payload = jwt.verify(token, ambiente.jwt.segredo);
+  let payload;
+  try {
+    payload = jwt.verify(token, ambiente.jwt.segredo);
+  } catch (erro) {
+    if (erro.name === 'TokenExpiredError') {
+      return res.status(401).json({ sucesso: false, erro: 'Token expirado' });
+    }
+    return res.status(401).json({ sucesso: false, erro: 'Token inválido' });
+  }
 
-  const usuario = await Usuario.findById(payload.sub).select('-__v');
+  const usuario = await Usuario.findById(payload.sub).select('-__v -senhaHash');
 
   if (!usuario) {
-    return res.status(401).json({
-      sucesso: false,
-      erro: 'Usuário não encontrado',
-    });
+    return res.status(401).json({ sucesso: false, erro: 'Usuário não encontrado' });
   }
 
   if (!usuario.ativo) {

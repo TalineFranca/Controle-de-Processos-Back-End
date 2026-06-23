@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import { body, param } from 'express-validator';
+import { body, param, query } from 'express-validator';
 import {
   listar,
   listarTipos,
   listarSituacoes,
   dashboard,
+  relatorioDiario,
   obterPorId,
   criar,
   atualizar,
@@ -26,6 +27,7 @@ roteador.get('/tipos', listarTipos);
 roteador.get('/situacoes', listarSituacoes);
 roteador.get('/dashboard', dashboard);
 roteador.get('/exportar', exportar);
+roteador.get('/relatorio-diario', relatorioDiario);
 roteador.get('/:id', [param('id').isMongoId().withMessage('ID inválido')], validar, obterPorId);
 
 // Escrita — operador ou admin

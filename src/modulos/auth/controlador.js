@@ -1,7 +1,7 @@
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
 import ambiente from '../../config/ambiente.js';
-import Usuario from '../../modelos/Usuario.js';
+import Usuario from '../../models/Usuario.js';
 import { manipuladorAsync, criarErro } from '../../utils/auxiliares.js';
 
 const clienteGoogle = new OAuth2Client(ambiente.google.clientId);
@@ -29,10 +29,68 @@ function gerarTokens(usuario) {
   return { accessToken, refreshToken };
 }
 
+function formatarUsuario(usuario) {
+  return {
+    id: usuario._id,
+    nome: usuario.nome,
+    email: usuario.email,
+    fotoPerfil: usuario.fotoPerfil,
+    perfil: usuario.perfil,
+  };
+}
+
+// ─────────────────────────────────────────────
+// LOGIN LOCAL (email + senha)
+// ─────────────────────────────────────────────
+
+/**
+ * POST /auth/login
+ * Login com e-mail e senha (alternativa ao Google OAuth).
+ */
+export const loginLocal = manipuladorAsync(async (req, res) => {
+  const { email, senha } = req.body;
+
+  if (!email || !senha) {
+    throw criarErro('E-mail e senha são obrigatórios', 400);
+  }
+
+  // Inclui senhaHash (campo hidden por padrão)
+  const usuario = await Usuario.findOne({ email: email.toLowerCase().trim() }).select('+senhaHash');
+
+  if (!usuario || !usuario.senhaHash) {
+    throw criarErro('E-mail ou senha inválidos', 401);
+  }
+
+  if (!usuario.verificarSenha(senha)) {
+    throw criarErro('E-mail ou senha inválidos', 401);
+  }
+
+  if (!usuario.ativo) {
+    throw criarErro('Conta desativada. Entre em contato com o administrador.', 403);
+  }
+
+  usuario.ultimoAcesso = new Date();
+  await usuario.save();
+
+  const tokens = gerarTokens(usuario);
+
+  res.json({
+    sucesso: true,
+    dados: {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      usuario: formatarUsuario(usuario),
+    },
+  });
+});
+
+// ─────────────────────────────────────────────
+// LOGIN GOOGLE OAUTH
+// ─────────────────────────────────────────────
+
 /**
  * POST /auth/google
- * Recebe o idToken gerado pelo Google Sign-In no frontend
- * e retorna JWT de acesso ao sistema.
+ * Recebe o idToken gerado pelo Google Sign-In no frontend.
  */
 export const loginGoogle = manipuladorAsync(async (req, res) => {
   const { idToken } = req.body;
@@ -41,7 +99,10 @@ export const loginGoogle = manipuladorAsync(async (req, res) => {
     throw criarErro('idToken não fornecido', 400);
   }
 
-  // Verifica o token com o Google
+  if (!ambiente.google.clientId) {
+    throw criarErro('Login com Google não configurado neste servidor', 501);
+  }
+
   let ticket;
   try {
     ticket = await clienteGoogle.verifyIdToken({
@@ -66,11 +127,9 @@ export const loginGoogle = manipuladorAsync(async (req, res) => {
     }
   }
 
-  // Upsert do usuário
   let usuario = await Usuario.findOne({ email });
 
   if (!usuario) {
-    // Primeiro usuário do sistema vira admin automaticamente
     const totalUsuarios = await Usuario.countDocuments();
     usuario = await Usuario.create({
       nome: name,
@@ -80,7 +139,6 @@ export const loginGoogle = manipuladorAsync(async (req, res) => {
       perfil: totalUsuarios === 0 ? 'admin' : 'visualizador',
     });
   } else {
-    // Atualiza dados do Google
     usuario.googleId = googleId;
     usuario.fotoPerfil = picture;
     usuario.nome = name;
@@ -99,16 +157,14 @@ export const loginGoogle = manipuladorAsync(async (req, res) => {
     dados: {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      usuario: {
-        id: usuario._id,
-        nome: usuario.nome,
-        email: usuario.email,
-        fotoPerfil: usuario.fotoPerfil,
-        perfil: usuario.perfil,
-      },
+      usuario: formatarUsuario(usuario),
     },
   });
 });
+
+// ─────────────────────────────────────────────
+// REFRESH TOKEN
+// ─────────────────────────────────────────────
 
 /**
  * POST /auth/refresh
@@ -124,8 +180,11 @@ export const renovarToken = manipuladorAsync(async (req, res) => {
   let payload;
   try {
     payload = jwt.verify(refreshToken, ambiente.jwt.segredo);
-  } catch {
-    throw criarErro('Refresh token inválido ou expirado', 401);
+  } catch (erro) {
+    throw criarErro(
+      erro.name === 'TokenExpiredError' ? 'Refresh token expirado' : 'Refresh token inválido',
+      401
+    );
   }
 
   const usuario = await Usuario.findById(payload.sub);
@@ -136,18 +195,15 @@ export const renovarToken = manipuladorAsync(async (req, res) => {
 
   const tokens = gerarTokens(usuario);
 
-  res.json({
-    sucesso: true,
-    dados: {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-    },
-  });
+  res.json({ sucesso: true, dados: tokens });
 });
+
+// ─────────────────────────────────────────────
+// PERFIL DO USUÁRIO LOGADO
+// ─────────────────────────────────────────────
 
 /**
  * GET /auth/me
- * Retorna dados do usuário autenticado.
  */
 export const obterPerfil = manipuladorAsync(async (req, res) => {
   res.json({
@@ -162,4 +218,33 @@ export const obterPerfil = manipuladorAsync(async (req, res) => {
       criadoEm: req.usuario.createdAt,
     },
   });
+});
+
+// ─────────────────────────────────────────────
+// ALTERAR PRÓPRIA SENHA (usuário logado)
+// ─────────────────────────────────────────────
+
+/**
+ * PATCH /auth/senha
+ * Permite ao próprio usuário definir/alterar sua senha local.
+ */
+export const alterarSenha = manipuladorAsync(async (req, res) => {
+  const { senhaAtual, novaSenha } = req.body;
+
+  if (!novaSenha || novaSenha.length < 8) {
+    throw criarErro('Nova senha deve ter pelo menos 8 caracteres', 400);
+  }
+
+  const usuario = await Usuario.findById(req.usuario._id).select('+senhaHash');
+
+  // Se já tem senha definida, exige a senha atual
+  if (usuario.senhaHash) {
+    if (!senhaAtual) throw criarErro('Senha atual é obrigatória', 400);
+    if (!usuario.verificarSenha(senhaAtual)) throw criarErro('Senha atual incorreta', 401);
+  }
+
+  usuario.definirSenha(novaSenha);
+  await usuario.save();
+
+  res.json({ sucesso: true, mensagem: 'Senha atualizada com sucesso' });
 });

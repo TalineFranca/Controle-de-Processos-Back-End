@@ -1,18 +1,26 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
-import { loginGoogle, renovarToken, obterPerfil } from './controlador.js';
+import { loginLocal, loginGoogle, renovarToken, obterPerfil, alterarSenha } from './controlador.js';
 import { autenticar } from '../../middlewares/autenticacao.js';
 import { validar } from '../../middlewares/validacao.js';
 
 const roteador = Router();
 
 /**
- * @swagger
- * /auth/google:
- *   post:
- *     summary: Login com Google OAuth
- *     tags: [Autenticação]
- *     security: []
+ * POST /auth/login — Login local (email + senha)
+ */
+roteador.post(
+  '/login',
+  [
+    body('email').isEmail().withMessage('E-mail inválido'),
+    body('senha').notEmpty().withMessage('Senha é obrigatória'),
+  ],
+  validar,
+  loginLocal
+);
+
+/**
+ * POST /auth/google — Login com Google OAuth
  */
 roteador.post(
   '/google',
@@ -22,12 +30,7 @@ roteador.post(
 );
 
 /**
- * @swagger
- * /auth/refresh:
- *   post:
- *     summary: Renovar access token
- *     tags: [Autenticação]
- *     security: []
+ * POST /auth/refresh — Renovar access token
  */
 roteador.post(
   '/refresh',
@@ -37,12 +40,19 @@ roteador.post(
 );
 
 /**
- * @swagger
- * /auth/me:
- *   get:
- *     summary: Dados do usuário autenticado
- *     tags: [Autenticação]
+ * GET /auth/me — Dados do usuário autenticado
  */
 roteador.get('/me', autenticar, obterPerfil);
+
+/**
+ * PATCH /auth/senha — Alterar própria senha
+ */
+roteador.patch(
+  '/senha',
+  autenticar,
+  [body('novaSenha').isLength({ min: 8 }).withMessage('Senha deve ter pelo menos 8 caracteres')],
+  validar,
+  alterarSenha
+);
 
 export default roteador;

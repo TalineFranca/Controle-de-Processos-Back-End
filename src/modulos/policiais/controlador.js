@@ -1,4 +1,4 @@
-import Policial from '../../modelos/Policial.js';
+import Policial from '../../models/Policial.js';
 import { manipuladorAsync, criarErro, respostaPaginada } from '../../utils/auxiliares.js';
 
 /**
