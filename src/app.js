@@ -17,6 +17,8 @@ import rotasProcessos from './modulos/processos/rotas.js';
 
 const app = express();
 
+app.set('trust proxy', 1);
+
 // ─────────────────────────────────────────────
 // Segurança
 // ─────────────────────────────────────────────
