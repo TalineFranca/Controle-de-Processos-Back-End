@@ -1,18 +1,28 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
-import { loginLocal, registrar, renovarToken, obterPerfil, alterarSenha } from './controlador.js';
-import { autenticar } from '../../middlewares/autenticacao.js';
+import {
+  loginLocal,
+  criarUsuario,
+  listarUsuarios,
+  alterarStatusUsuario,
+  alterarPerfil,
+  redefinirSenha,
+  renovarToken,
+  obterPerfil,
+  alterarSenha,
+} from './controlador.js';
+import { autenticar, autorizar } from '../../middlewares/autenticacao.js';
 import { validar } from '../../middlewares/validacao.js';
 
 const roteador = Router();
 
 /**
- * POST /auth/login — Login local (email + senha)
+ * POST /auth/login — Login com nomeUsuario + senha
  */
 roteador.post(
   '/login',
   [
-    body('email').isEmail().withMessage('E-mail inválido'),
+    body('nomeUsuario').notEmpty().withMessage('Nome de usuário é obrigatório'),
     body('senha').notEmpty().withMessage('Senha é obrigatória'),
   ],
   validar,
@@ -20,17 +30,53 @@ roteador.post(
 );
 
 /**
- * POST /auth/registrar — Cadastro público (nome + email + senha)
+ * POST /auth/usuarios — Criar usuário (somente admin)
  */
 roteador.post(
-  '/registrar',
+  '/usuarios',
+  autenticar,
+  autorizar('admin'),
   [
-    body('nome').notEmpty().withMessage('Nome é obrigatório'),
-    body('email').isEmail().withMessage('E-mail inválido'),
+    body('nomeUsuario').notEmpty().trim().withMessage('Nome de usuário é obrigatório'),
+    body('nome').notEmpty().trim().withMessage('Nome é obrigatório'),
     body('senha').isLength({ min: 8 }).withMessage('Senha deve ter pelo menos 8 caracteres'),
   ],
   validar,
-  registrar
+  criarUsuario
+);
+
+/**
+ * GET /auth/usuarios — Listar usuários (somente admin)
+ */
+roteador.get('/usuarios', autenticar, autorizar('admin'), listarUsuarios);
+
+/**
+ * PATCH /auth/usuarios/:id/status — Ativar/desativar (somente admin)
+ */
+roteador.patch('/usuarios/:id/status', autenticar, autorizar('admin'), alterarStatusUsuario);
+
+/**
+ * PATCH /auth/usuarios/:id/perfil — Alterar perfil (somente admin)
+ */
+roteador.patch(
+  '/usuarios/:id/perfil',
+  autenticar,
+  autorizar('admin'),
+  [body('perfil').isIn(['admin', 'operador', 'visualizador']).withMessage('Perfil inválido')],
+  validar,
+  alterarPerfil
+);
+
+/**
+ * PATCH /auth/usuarios/:id/senha — Redefinir senha de outro usuário (somente admin)
+ */
+roteador.patch(
+  '/usuarios/:id/senha',
+  autenticar,
+  autorizar('admin'),
+  [body('novaSenha').isLength({ min: 8 }).withMessage('Senha deve ter pelo menos 8 caracteres')],
+  validar,
+  redefinirSenha
 );
 
 /**

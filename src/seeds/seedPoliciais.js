@@ -22,6 +22,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: resolve(__dirname, '../../.env') });
 
 import Policial, { obterOrdemHierarquica } from '../models/Policial.js';
+import Usuario from '../models/Usuario.js';
 
 const CSV_PATH = process.env.CSV_PATH || resolve(__dirname, '../../data/efetivo.csv');
 
@@ -185,26 +186,26 @@ async function executarSeed() {
   let linhas;
   try {
     linhas = lerCSV(CSV_PATH);
-    console.log(`📄 Linhas lidas: ${linhas.length}`);
+    console.log(` Linhas lidas: ${linhas.length}`);
   } catch (erro) {
-    console.error(`❌ Erro ao ler CSV: ${erro.message}`);
+    console.error(` Erro ao ler CSV: ${erro.message}`);
     console.error(`   Verifique se o arquivo existe em: ${CSV_PATH}`);
     console.error(`   Ou defina CSV_PATH=caminho/para/o/arquivo.csv\n`);
     process.exit(1);
   }
 
   const policiais = processarCSV(linhas);
-  console.log(`📊 Policiais encontrados no CSV: ${policiais.length}`);
+  console.log(` Policiais encontrados no CSV: ${policiais.length}`);
 
   if (policiais.length === 0) {
-    console.error('❌ Nenhum policial encontrado. Verifique o formato do CSV.');
+    console.error(' Nenhum policial encontrado. Verifique o formato do CSV.');
     console.error('   Esperado: coluna 0 = nrOrdem, 1 = posto, 2 = nomeGuerra, 3 = nomeCompleto, 4 = funcao');
     process.exit(1);
   }
 
   // Exibe seções encontradas
   const secoes = [...new Set(policiais.map((p) => p.secaoOrigem))];
-  console.log(`\n📍 Seções encontradas (${secoes.length}):`);
+  console.log(`\n Seções encontradas (${secoes.length}):`);
   secoes.forEach((s) => {
     const qtd = policiais.filter((p) => p.secaoOrigem === s).length;
     console.log(`   • ${s} (${qtd} policiais)`);
@@ -214,7 +215,7 @@ async function executarSeed() {
   const modo = process.env.SEED_MODO || 'upsert';
 
   if (existentes > 0) {
-    console.log(`\n⚠️  Já existem ${existentes} policiais no banco. Modo: ${modo.toUpperCase()}\n`);
+    console.log(`\n  Já existem ${existentes} policiais no banco. Modo: ${modo.toUpperCase()}\n`);
 
     if (modo === 'limpar') {
       await Policial.deleteMany({});
@@ -234,7 +235,7 @@ async function executarSeed() {
         else atualizados++;
       }
 
-      console.log(`✅ Seed concluído!`);
+      console.log(` Seed concluído!`);
       console.log(`   Inseridos:   ${inseridos}`);
       console.log(`   Atualizados: ${atualizados}\n`);
       await mongoose.disconnect();
@@ -245,14 +246,30 @@ async function executarSeed() {
   await Policial.insertMany(policiais, { ordered: false });
 
   const total = await Policial.countDocuments();
-  console.log(`✅ Seed concluído! Total no banco: ${total} policiais\n`);
+  console.log(` Seed concluído! Total no banco: ${total} policiais\n`);
 
   // Amostra
-  console.log('📋 Amostra por hierarquia:');
+  console.log(' Amostra por hierarquia:');
   const amostra = await Policial.find({}).sort({ ordemHierarquica: 1, nrOrdem: 1 }).limit(5);
   amostra.forEach((p) =>
     console.log(`   [${p.ordemHierarquica}] ${p.postoGraduacao} ${p.nomeGuerra} — ${p.unidade} (${p.localidade})`)
   );
+
+  // ── Usuário padrão ──────────────────────────────────
+  const usuarioExistente = await Usuario.findOne({ nomeUsuario: 'usuario.padrao' });
+  if (!usuarioExistente) {
+    const admin = new Usuario({
+      nomeUsuario: 'usuario.padrao',
+      nome: 'Administrador',
+      perfil: 'admin',
+      ativo: true,
+    });
+    await admin.definirSenha('Bpm2026@');
+    await admin.save();
+    console.log(' Usuário padrão criado: usuario.padrao / Bpm2026@');
+  } else {
+    console.log('ℹ  Usuário padrão já existe, pulando.');
+  }
 
   await mongoose.disconnect();
   console.log('\n[MongoDB] Desconectado. Seed finalizado.\n');

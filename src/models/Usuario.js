@@ -1,41 +1,34 @@
 import mongoose from 'mongoose';
-import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 
-/**
- * Perfis de acesso do sistema.
- * - admin: acesso total
- * - operador: registra e edita processos
- * - visualizador: somente leitura
- */
 export const PERFIS = ['admin', 'operador', 'visualizador'];
+
+const SALT_ROUNDS = 12;
 
 const esquemaUsuario = new mongoose.Schema(
   {
+    nomeUsuario: {
+      type: String,
+      required: [true, 'Nome de usuário é obrigatório'],
+      unique: true,
+      lowercase: true,
+      trim: true,
+      minlength: [3, 'Nome de usuário deve ter pelo menos 3 caracteres'],
+    },
     nome: {
       type: String,
       required: [true, 'Nome é obrigatório'],
       trim: true,
     },
-    email: {
-      type: String,
-      required: [true, 'E-mail é obrigatório'],
-      unique: true,
-      lowercase: true,
-      trim: true,
-    },
-    /**
-     * Hash da senha de login local.
-     * Armazenado como SHA-256 com salt.
-     */
     senhaHash: {
       type: String,
       default: null,
-      select: false, // nunca retorna no JSON padrão
+      select: false,
     },
     perfil: {
       type: String,
       enum: { values: PERFIS, message: 'Perfil inválido: {VALUE}' },
-      default: 'visualizador',
+      default: 'operador',
     },
     ativo: {
       type: Boolean,
@@ -49,25 +42,15 @@ const esquemaUsuario = new mongoose.Schema(
   { timestamps: true }
 );
 
-esquemaUsuario.index({ email: 1 }, { unique: true });
+esquemaUsuario.index({ nomeUsuario: 1 }, { unique: true });
 
-/**
- * Define a senha do usuário (hash SHA-256 + salt).
- */
-esquemaUsuario.methods.definirSenha = function (senha) {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.createHmac('sha256', salt).update(senha).digest('hex');
-  this.senhaHash = `${salt}:${hash}`;
+esquemaUsuario.methods.definirSenha = async function (senha) {
+  this.senhaHash = await bcrypt.hash(senha, SALT_ROUNDS);
 };
 
-/**
- * Verifica se a senha fornecida corresponde ao hash armazenado.
- */
-esquemaUsuario.methods.verificarSenha = function (senha) {
+esquemaUsuario.methods.verificarSenha = async function (senha) {
   if (!this.senhaHash) return false;
-  const [salt, hashArmazenado] = this.senhaHash.split(':');
-  const hash = crypto.createHmac('sha256', salt).update(senha).digest('hex');
-  return hash === hashArmazenado;
+  return bcrypt.compare(senha, this.senhaHash);
 };
 
 const Usuario = mongoose.model('Usuario', esquemaUsuario);

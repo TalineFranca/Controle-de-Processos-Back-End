@@ -3,13 +3,10 @@ import ambiente from '../../config/ambiente.js';
 import Usuario from '../../models/Usuario.js';
 import { manipuladorAsync, criarErro } from '../../utils/auxiliares.js';
 
-/**
- * Gera par de tokens JWT (access + refresh).
- */
 function gerarTokens(usuario) {
   const payload = {
     sub: usuario._id.toString(),
-    email: usuario.email,
+    nomeUsuario: usuario.nomeUsuario,
     perfil: usuario.perfil,
   };
 
@@ -30,35 +27,34 @@ function formatarUsuario(usuario) {
   return {
     id: usuario._id,
     nome: usuario.nome,
-    email: usuario.email,
+    nomeUsuario: usuario.nomeUsuario,
     perfil: usuario.perfil,
   };
 }
 
 // ─────────────────────────────────────────────
-// LOGIN LOCAL (email + senha)
+// LOGIN (nomeUsuario + senha)
 // ─────────────────────────────────────────────
 
-/**
- * POST /auth/login
- * Login com e-mail e senha.
- */
 export const loginLocal = manipuladorAsync(async (req, res) => {
-  const { email, senha } = req.body;
+  const { nomeUsuario, senha } = req.body;
 
-  if (!email || !senha) {
-    throw criarErro('E-mail e senha são obrigatórios', 400);
+  if (!nomeUsuario || !senha) {
+    throw criarErro('Usuário e senha são obrigatórios', 400);
   }
 
-  // Inclui senhaHash (campo hidden por padrão)
-  const usuario = await Usuario.findOne({ email: email.toLowerCase().trim() }).select('+senhaHash');
+  const usuario = await Usuario.findOne({
+    nomeUsuario: nomeUsuario.toLowerCase().trim(),
+  }).select('+senhaHash');
 
+  // Mensagem genérica para não revelar se o usuário existe
   if (!usuario || !usuario.senhaHash) {
-    throw criarErro('E-mail ou senha inválidos', 401);
+    throw criarErro('Usuário ou senha inválidos', 401);
   }
 
-  if (!usuario.verificarSenha(senha)) {
-    throw criarErro('E-mail ou senha inválidos', 401);
+  const senhaCorreta = await usuario.verificarSenha(senha);
+  if (!senhaCorreta) {
+    throw criarErro('Usuário ou senha inválidos', 401);
   }
 
   if (!usuario.ativo) {
@@ -81,77 +77,111 @@ export const loginLocal = manipuladorAsync(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// CADASTRO (auto-registro de novo usuário)
+// CRIAR USUÁRIO (somente admin)
 // ─────────────────────────────────────────────
 
-/**
- * POST /auth/registrar
- * Cadastro público: nome, e-mail e senha.
- * O primeiro usuário cadastrado no sistema vira admin automaticamente;
- * os demais entram como "visualizador" (admin pode promover depois).
- */
-export const registrar = manipuladorAsync(async (req, res) => {
-  const { nome, email, senha } = req.body;
+export const criarUsuario = manipuladorAsync(async (req, res) => {
+  const { nomeUsuario, nome, senha, perfil } = req.body;
 
-  if (!nome || !email || !senha) {
-    throw criarErro('Nome, e-mail e senha são obrigatórios', 400);
+  if (!nomeUsuario || !nome || !senha) {
+    throw criarErro('Nome de usuário, nome e senha são obrigatórios', 400);
   }
 
   if (senha.length < 8) {
     throw criarErro('A senha deve ter pelo menos 8 caracteres', 400);
   }
 
-  const emailNormalizado = email.toLowerCase().trim();
-
-  // Restrição opcional de domínio (configurável via REGISTRO_DOMINIO_PERMITIDO)
-  if (ambiente.registro.dominioPermitido) {
-    const dominio = emailNormalizado.split('@')[1];
-    if (dominio !== ambiente.registro.dominioPermitido) {
-      throw criarErro(
-        `Cadastro restrito a e-mails do domínio @${ambiente.registro.dominioPermitido}`,
-        403
-      );
-    }
-  }
-
-  const existente = await Usuario.findOne({ email: emailNormalizado });
+  const existente = await Usuario.findOne({ nomeUsuario: nomeUsuario.toLowerCase().trim() });
   if (existente) {
-    throw criarErro('Já existe uma conta cadastrada com este e-mail', 409);
+    throw criarErro('Nome de usuário já está em uso', 409);
   }
 
   const totalUsuarios = await Usuario.countDocuments();
 
   const usuario = new Usuario({
+    nomeUsuario: nomeUsuario.toLowerCase().trim(),
     nome: nome.trim(),
-    email: emailNormalizado,
-    perfil: totalUsuarios === 0 ? 'admin' : 'visualizador',
+    // Primeiro usuário do sistema vira admin automaticamente
+    perfil: totalUsuarios === 0 ? 'admin' : (perfil || 'operador'),
     ativo: true,
   });
 
-  usuario.definirSenha(senha);
-  usuario.ultimoAcesso = new Date();
+  await usuario.definirSenha(senha);
   await usuario.save();
-
-  const tokens = gerarTokens(usuario);
 
   res.status(201).json({
     sucesso: true,
-    dados: {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      usuario: formatarUsuario(usuario),
-    },
+    dados: formatarUsuario(usuario),
   });
+});
+
+// ─────────────────────────────────────────────
+// LISTAR USUÁRIOS (somente admin)
+// ─────────────────────────────────────────────
+
+export const listarUsuarios = manipuladorAsync(async (req, res) => {
+  const usuarios = await Usuario.find().select('-__v').sort({ createdAt: -1 });
+  res.json({ sucesso: true, dados: usuarios });
+});
+
+// ─────────────────────────────────────────────
+// ATIVAR / DESATIVAR USUÁRIO (somente admin)
+// ─────────────────────────────────────────────
+
+export const alterarStatusUsuario = manipuladorAsync(async (req, res) => {
+  const usuario = await Usuario.findById(req.params.id);
+  if (!usuario) throw criarErro('Usuário não encontrado', 404);
+
+  // Impede desativar o próprio admin logado
+  if (usuario._id.toString() === req.usuario._id.toString()) {
+    throw criarErro('Você não pode desativar sua própria conta', 400);
+  }
+
+  usuario.ativo = !usuario.ativo;
+  await usuario.save();
+
+  res.json({ sucesso: true, dados: formatarUsuario(usuario) });
+});
+
+// ─────────────────────────────────────────────
+// ALTERAR PERFIL (somente admin)
+// ─────────────────────────────────────────────
+
+export const alterarPerfil = manipuladorAsync(async (req, res) => {
+  const { perfil } = req.body;
+  const usuario = await Usuario.findById(req.params.id);
+  if (!usuario) throw criarErro('Usuário não encontrado', 404);
+
+  usuario.perfil = perfil;
+  await usuario.save();
+
+  res.json({ sucesso: true, dados: formatarUsuario(usuario) });
+});
+
+// ─────────────────────────────────────────────
+// REDEFINIR SENHA (somente admin)
+// ─────────────────────────────────────────────
+
+export const redefinirSenha = manipuladorAsync(async (req, res) => {
+  const { novaSenha } = req.body;
+
+  if (!novaSenha || novaSenha.length < 8) {
+    throw criarErro('A nova senha deve ter pelo menos 8 caracteres', 400);
+  }
+
+  const usuario = await Usuario.findById(req.params.id).select('+senhaHash');
+  if (!usuario) throw criarErro('Usuário não encontrado', 404);
+
+  await usuario.definirSenha(novaSenha);
+  await usuario.save();
+
+  res.json({ sucesso: true, mensagem: 'Senha redefinida com sucesso' });
 });
 
 // ─────────────────────────────────────────────
 // REFRESH TOKEN
 // ─────────────────────────────────────────────
 
-/**
- * POST /auth/refresh
- * Renova o access token usando o refresh token.
- */
 export const renovarToken = manipuladorAsync(async (req, res) => {
   const { refreshToken } = req.body;
 
@@ -170,13 +200,11 @@ export const renovarToken = manipuladorAsync(async (req, res) => {
   }
 
   const usuario = await Usuario.findById(payload.sub);
-
   if (!usuario || !usuario.ativo) {
     throw criarErro('Usuário não encontrado ou desativado', 401);
   }
 
   const tokens = gerarTokens(usuario);
-
   res.json({ sucesso: true, dados: tokens });
 });
 
@@ -184,16 +212,13 @@ export const renovarToken = manipuladorAsync(async (req, res) => {
 // PERFIL DO USUÁRIO LOGADO
 // ─────────────────────────────────────────────
 
-/**
- * GET /auth/me
- */
 export const obterPerfil = manipuladorAsync(async (req, res) => {
   res.json({
     sucesso: true,
     dados: {
       id: req.usuario._id,
       nome: req.usuario.nome,
-      email: req.usuario.email,
+      nomeUsuario: req.usuario.nomeUsuario,
       perfil: req.usuario.perfil,
       ultimoAcesso: req.usuario.ultimoAcesso,
       criadoEm: req.usuario.createdAt,
@@ -205,10 +230,6 @@ export const obterPerfil = manipuladorAsync(async (req, res) => {
 // ALTERAR PRÓPRIA SENHA (usuário logado)
 // ─────────────────────────────────────────────
 
-/**
- * PATCH /auth/senha
- * Permite ao próprio usuário definir/alterar sua senha local.
- */
 export const alterarSenha = manipuladorAsync(async (req, res) => {
   const { senhaAtual, novaSenha } = req.body;
 
@@ -218,13 +239,13 @@ export const alterarSenha = manipuladorAsync(async (req, res) => {
 
   const usuario = await Usuario.findById(req.usuario._id).select('+senhaHash');
 
-  // Se já tem senha definida, exige a senha atual
   if (usuario.senhaHash) {
     if (!senhaAtual) throw criarErro('Senha atual é obrigatória', 400);
-    if (!usuario.verificarSenha(senhaAtual)) throw criarErro('Senha atual incorreta', 401);
+    const correta = await usuario.verificarSenha(senhaAtual);
+    if (!correta) throw criarErro('Senha atual incorreta', 401);
   }
 
-  usuario.definirSenha(novaSenha);
+  await usuario.definirSenha(novaSenha);
   await usuario.save();
 
   res.json({ sucesso: true, mensagem: 'Senha atualizada com sucesso' });
