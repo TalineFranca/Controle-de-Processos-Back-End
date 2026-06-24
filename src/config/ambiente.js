@@ -14,13 +14,15 @@ const ambiente = {
     expiracao: process.env.JWT_EXPIRES_IN || '8h',
     expiracaoRefresh: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   },
-  google: {
-    clientId: process.env.GOOGLE_CLIENT_ID || '',
-    dominioPermitido: process.env.GOOGLE_ALLOWED_DOMAIN || '',
-  },
   corsOrigens: process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
     : ['http://localhost:5173', 'http://localhost:3001'],
+  registro: {
+    // Opcional: se definido, só permite auto-cadastro com e-mails desse domínio.
+    // Ex: REGISTRO_DOMINIO_PERMITIDO=pm.ro.gov.br
+    // Deixe vazio/sem definir para permitir qualquer e-mail.
+    dominioPermitido: process.env.REGISTRO_DOMINIO_PERMITIDO || '',
+  },
 };
 
 // Aviso em produção com segredo padrão

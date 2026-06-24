@@ -1,72 +1,25 @@
 import { Router } from 'express';
-import { body, param, query } from 'express-validator';
+import { autenticar } from '../../middlewares/autenticacao.js';
 import {
   listar,
-  listarTipos,
-  listarSituacoes,
   dashboard,
-  relatorioDiario,
   obterPorId,
   criar,
-  atualizar,
-  alterarSituacao,
-  atualizarDocumentos,
-  exportar,
+  marcarFeito,
+  marcarNaoFeito,
+  excluir,
 } from './controlador.js';
-import { autenticar, autorizar } from '../../middlewares/autenticacao.js';
-import { validar } from '../../middlewares/validacao.js';
 
 const roteador = Router();
 
-// Todos os endpoints exigem autenticação
 roteador.use(autenticar);
 
-// Leitura — qualquer perfil autenticado
 roteador.get('/', listar);
-roteador.get('/tipos', listarTipos);
-roteador.get('/situacoes', listarSituacoes);
 roteador.get('/dashboard', dashboard);
-roteador.get('/exportar', exportar);
-roteador.get('/relatorio-diario', relatorioDiario);
-roteador.get('/:id', [param('id').isMongoId().withMessage('ID inválido')], validar, obterPorId);
-
-// Escrita — operador ou admin
-roteador.post(
-  '/',
-  autorizar('admin', 'operador'),
-  [
-    body('policialId').isMongoId().withMessage('policialId inválido'),
-    body('tipoProcesso').notEmpty().withMessage('Tipo do processo é obrigatório'),
-  ],
-  validar,
-  criar
-);
-
-roteador.put(
-  '/:id',
-  autorizar('admin', 'operador'),
-  [param('id').isMongoId().withMessage('ID inválido')],
-  validar,
-  atualizar
-);
-
-roteador.patch(
-  '/:id/situacao',
-  autorizar('admin', 'operador'),
-  [
-    param('id').isMongoId().withMessage('ID inválido'),
-    body('situacao').notEmpty().withMessage('Situação é obrigatória'),
-  ],
-  validar,
-  alterarSituacao
-);
-
-roteador.patch(
-  '/:id/documentos',
-  autorizar('admin', 'operador'),
-  [param('id').isMongoId().withMessage('ID inválido')],
-  validar,
-  atualizarDocumentos
-);
+roteador.get('/:id', obterPorId);
+roteador.post('/', criar);
+roteador.patch('/:id/feito', marcarFeito);
+roteador.patch('/:id/nao-feito', marcarNaoFeito);
+roteador.delete('/:id', excluir);
 
 export default roteador;

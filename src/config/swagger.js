@@ -8,8 +8,8 @@ API REST para controle de recebimento e acompanhamento de processos administrati
 do 3º Batalhão de Polícia Militar de Rondônia.
 
 **Autenticação:**
+- Cadastro: \`POST /auth/registrar\` com nome, e-mail e senha
 - Login local: \`POST /auth/login\` com e-mail e senha
-- Login Google: \`POST /auth/google\` com idToken do Google Sign-In
 - Todos os demais endpoints exigem \`Authorization: Bearer <token>\`
     `.trim(),
   },
@@ -152,16 +152,31 @@ do 3º Batalhão de Polícia Militar de Rondônia.
         },
       },
     },
-    '/auth/google': {
+    '/auth/registrar': {
       post: {
-        summary: 'Login com Google OAuth',
+        summary: 'Cadastro de novo usuário (nome + e-mail + senha)',
         tags: ['Autenticação'],
         security: [],
         requestBody: {
           required: true,
-          content: { 'application/json': { schema: { type: 'object', required: ['idToken'], properties: { idToken: { type: 'string' } } } } },
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['nome', 'email', 'senha'],
+                properties: {
+                  nome: { type: 'string' },
+                  email: { type: 'string', format: 'email' },
+                  senha: { type: 'string', minLength: 8 },
+                },
+              },
+            },
+          },
         },
-        responses: { 200: { description: 'Login bem-sucedido' } },
+        responses: {
+          201: { description: 'Conta criada e login efetuado' },
+          409: { description: 'E-mail já cadastrado', content: { 'application/json': { schema: { $ref: '#/components/schemas/Erro' } } } },
+        },
       },
     },
     '/auth/refresh': {

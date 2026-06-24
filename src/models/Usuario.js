@@ -24,22 +24,13 @@ const esquemaUsuario = new mongoose.Schema(
       trim: true,
     },
     /**
-     * Hash da senha para login local (opcional — pode usar só Google).
-     * Armazenado como SHA-256 com salt, ou null se o usuário só usa OAuth.
+     * Hash da senha de login local.
+     * Armazenado como SHA-256 com salt.
      */
     senhaHash: {
       type: String,
       default: null,
       select: false, // nunca retorna no JSON padrão
-    },
-    googleId: {
-      type: String,
-      unique: true,
-      sparse: true,
-    },
-    fotoPerfil: {
-      type: String,
-      default: null,
     },
     perfil: {
       type: String,

@@ -37,7 +37,7 @@ export const obterPorId = manipuladorAsync(async (req, res) => {
 /**
  * POST /usuarios
  * Cria usuário manualmente com senha local (admin).
- * Útil para ambientes sem Google OAuth.
+ * Útil para o administrador criar contas para outras pessoas, sem depender do auto-cadastro.
  */
 export const criar = manipuladorAsync(async (req, res) => {
   const { nome, email, senha, perfil = 'visualizador' } = req.body;

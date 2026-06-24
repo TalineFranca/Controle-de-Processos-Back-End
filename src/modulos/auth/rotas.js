@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
-import { loginLocal, loginGoogle, renovarToken, obterPerfil, alterarSenha } from './controlador.js';
+import { loginLocal, registrar, renovarToken, obterPerfil, alterarSenha } from './controlador.js';
 import { autenticar } from '../../middlewares/autenticacao.js';
 import { validar } from '../../middlewares/validacao.js';
 
@@ -20,13 +20,17 @@ roteador.post(
 );
 
 /**
- * POST /auth/google — Login com Google OAuth
+ * POST /auth/registrar — Cadastro público (nome + email + senha)
  */
 roteador.post(
-  '/google',
-  [body('idToken').notEmpty().withMessage('idToken é obrigatório')],
+  '/registrar',
+  [
+    body('nome').notEmpty().withMessage('Nome é obrigatório'),
+    body('email').isEmail().withMessage('E-mail inválido'),
+    body('senha').isLength({ min: 8 }).withMessage('Senha deve ter pelo menos 8 caracteres'),
+  ],
   validar,
-  loginGoogle
+  registrar
 );
 
 /**

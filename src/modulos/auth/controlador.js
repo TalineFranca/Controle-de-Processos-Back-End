@@ -1,10 +1,7 @@
-import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
 import ambiente from '../../config/ambiente.js';
 import Usuario from '../../models/Usuario.js';
 import { manipuladorAsync, criarErro } from '../../utils/auxiliares.js';
-
-const clienteGoogle = new OAuth2Client(ambiente.google.clientId);
 
 /**
  * Gera par de tokens JWT (access + refresh).
@@ -34,7 +31,6 @@ function formatarUsuario(usuario) {
     id: usuario._id,
     nome: usuario.nome,
     email: usuario.email,
-    fotoPerfil: usuario.fotoPerfil,
     perfil: usuario.perfil,
   };
 }
@@ -45,7 +41,7 @@ function formatarUsuario(usuario) {
 
 /**
  * POST /auth/login
- * Login com e-mail e senha (alternativa ao Google OAuth).
+ * Login com e-mail e senha.
  */
 export const loginLocal = manipuladorAsync(async (req, res) => {
   const { email, senha } = req.body;
@@ -85,74 +81,60 @@ export const loginLocal = manipuladorAsync(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// LOGIN GOOGLE OAUTH
+// CADASTRO (auto-registro de novo usuário)
 // ─────────────────────────────────────────────
 
 /**
- * POST /auth/google
- * Recebe o idToken gerado pelo Google Sign-In no frontend.
+ * POST /auth/registrar
+ * Cadastro público: nome, e-mail e senha.
+ * O primeiro usuário cadastrado no sistema vira admin automaticamente;
+ * os demais entram como "visualizador" (admin pode promover depois).
  */
-export const loginGoogle = manipuladorAsync(async (req, res) => {
-  const { idToken } = req.body;
+export const registrar = manipuladorAsync(async (req, res) => {
+  const { nome, email, senha } = req.body;
 
-  if (!idToken) {
-    throw criarErro('idToken não fornecido', 400);
+  if (!nome || !email || !senha) {
+    throw criarErro('Nome, e-mail e senha são obrigatórios', 400);
   }
 
-  if (!ambiente.google.clientId) {
-    throw criarErro('Login com Google não configurado neste servidor', 501);
+  if (senha.length < 8) {
+    throw criarErro('A senha deve ter pelo menos 8 caracteres', 400);
   }
 
-  let ticket;
-  try {
-    ticket = await clienteGoogle.verifyIdToken({
-      idToken,
-      audience: ambiente.google.clientId,
-    });
-  } catch {
-    throw criarErro('Token Google inválido ou expirado', 401);
-  }
+  const emailNormalizado = email.toLowerCase().trim();
 
-  const payload = ticket.getPayload();
-  const { sub: googleId, email, name, picture } = payload;
-
-  // Restringe por domínio se configurado
-  if (ambiente.google.dominioPermitido) {
-    const dominio = email.split('@')[1];
-    if (dominio !== ambiente.google.dominioPermitido) {
+  // Restrição opcional de domínio (configurável via REGISTRO_DOMINIO_PERMITIDO)
+  if (ambiente.registro.dominioPermitido) {
+    const dominio = emailNormalizado.split('@')[1];
+    if (dominio !== ambiente.registro.dominioPermitido) {
       throw criarErro(
-        `Acesso restrito a contas do domínio @${ambiente.google.dominioPermitido}`,
+        `Cadastro restrito a e-mails do domínio @${ambiente.registro.dominioPermitido}`,
         403
       );
     }
   }
 
-  let usuario = await Usuario.findOne({ email });
-
-  if (!usuario) {
-    const totalUsuarios = await Usuario.countDocuments();
-    usuario = await Usuario.create({
-      nome: name,
-      email,
-      googleId,
-      fotoPerfil: picture,
-      perfil: totalUsuarios === 0 ? 'admin' : 'visualizador',
-    });
-  } else {
-    usuario.googleId = googleId;
-    usuario.fotoPerfil = picture;
-    usuario.nome = name;
-    usuario.ultimoAcesso = new Date();
-    await usuario.save();
+  const existente = await Usuario.findOne({ email: emailNormalizado });
+  if (existente) {
+    throw criarErro('Já existe uma conta cadastrada com este e-mail', 409);
   }
 
-  if (!usuario.ativo) {
-    throw criarErro('Conta desativada. Entre em contato com o administrador.', 403);
-  }
+  const totalUsuarios = await Usuario.countDocuments();
+
+  const usuario = new Usuario({
+    nome: nome.trim(),
+    email: emailNormalizado,
+    perfil: totalUsuarios === 0 ? 'admin' : 'visualizador',
+    ativo: true,
+  });
+
+  usuario.definirSenha(senha);
+  usuario.ultimoAcesso = new Date();
+  await usuario.save();
 
   const tokens = gerarTokens(usuario);
 
-  res.json({
+  res.status(201).json({
     sucesso: true,
     dados: {
       accessToken: tokens.accessToken,
@@ -212,7 +194,6 @@ export const obterPerfil = manipuladorAsync(async (req, res) => {
       id: req.usuario._id,
       nome: req.usuario.nome,
       email: req.usuario.email,
-      fotoPerfil: req.usuario.fotoPerfil,
       perfil: req.usuario.perfil,
       ultimoAcesso: req.usuario.ultimoAcesso,
       criadoEm: req.usuario.createdAt,
