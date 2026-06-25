@@ -63,25 +63,24 @@ function norm(s) {
 
 function lerAntiguidade(caminho) {
   const conteudo = lerBuffer(caminho);
-  const linhas = conteudo.split('\n').map(l => l.split(';').map(c => c.trim()));
+  // O arquivo é separado por VÍRGULA e tem 4 colunas:
+  // Posto/Graduação, Quadro, Nome, Nome de guerra (não tem coluna de unidade)
+  const linhas = conteudo.split('\n').map(l => l.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
 
   const mapa = new Map();
   let ordem = 0;
 
   for (const cols of linhas) {
-    if (!cols[0] || cols[0].toLowerCase().includes('posto') || cols[0] === '') continue;
+    const posto = (cols[0] || '').trim();
+    if (!posto || posto.toLowerCase().includes('posto')) continue;
+
+    const nomeCompleto = (cols[2] || '').trim();
+    const nomeGuerra   = (cols[3] || '').trim();
+    if (!nomeCompleto && !nomeGuerra) continue;
 
     ordem++;
-    const posto        = cols[0] || '';
-    const nomeCompleto = cols[2] || '';
-    const nomeGuerra   = cols[3] || '';
-    // Unidade completa do relatório (ex: "PM / ... / 3º BPM / 4º CIA PM / 2º PEL PM")
-    const unidadeTotal = cols[6] || '';
 
-    // Extrai CIA / PEL / GP da string de unidade do relatório total
-    const { cia, pel, gp } = extrairSubunidades(unidadeTotal, '/');
-
-    const entrada = { ordem, posto, nomeCompleto, nomeGuerra, unidadeTotal, cia, pel, gp };
+    const entrada = { ordem, posto, nomeCompleto, nomeGuerra };
 
     if (nomeGuerra)   mapa.set(norm(nomeGuerra), entrada);
     if (nomeCompleto) mapa.set(norm(nomeCompleto), entrada);
