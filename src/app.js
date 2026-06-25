@@ -95,7 +95,6 @@ app.use((req, res) => {
   res.status(404).json({ sucesso: false, erro: `Rota ${req.method} ${req.path} não encontrada` });
 });
 
-// Tratador global de erros (deve ser o último middleware)
 app.use(tratadorDeErros);
 
 export default app;
