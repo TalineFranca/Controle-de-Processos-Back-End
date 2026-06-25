@@ -41,7 +41,7 @@ app.use(
 // Rate limiting global
 const limitador = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 300,
+  max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { sucesso: false, erro: 'Muitas requisições. Tente novamente em 15 minutos.' },
@@ -51,7 +51,7 @@ app.use(limitador);
 // Rate limiting mais restrito para auth
 const limitadorAuth = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 100,
   message: { sucesso: false, erro: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
 });
 
