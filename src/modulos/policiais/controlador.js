@@ -11,12 +11,7 @@ export const listar = manipuladorAsync(async (req, res) => {
     pagina = 1,
     limite = 50,
     busca,
-    unidade,
-    localidade,
     postoGraduacao,
-    cia,
-    pel,
-    gp,
     ativo = 'true',
   } = req.query;
 
@@ -25,12 +20,7 @@ export const listar = manipuladorAsync(async (req, res) => {
   const filtro = {};
 
   if (ativo !== undefined) filtro.ativo = ativo === 'true';
-  if (unidade) filtro.unidade = { $regex: unidade, $options: 'i' };
-  if (localidade) filtro.localidade = { $regex: localidade, $options: 'i' };
   if (postoGraduacao) filtro.postoGraduacao = { $regex: postoGraduacao, $options: 'i' };
-  if (cia) filtro.cia = { $regex: cia, $options: 'i' };
-  if (pel) filtro.pel = { $regex: pel, $options: 'i' };
-  if (gp) filtro.gp = { $regex: gp, $options: 'i' };
 
   if (busca) {
     filtro.$or = [

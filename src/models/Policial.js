@@ -56,6 +56,11 @@ const policialSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    quadro: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     matricula: {
       type: String,
       trim: true,
