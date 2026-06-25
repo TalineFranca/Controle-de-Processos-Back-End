@@ -43,6 +43,29 @@ export const listar = manipuladorAsync(async (req, res) => {
 });
 
 /**
+ * GET /policiais/unidades
+ * Retorna listas de localidades, CIAs, PELs, GPs únicos para os filtros.
+ */
+export const listarUnidades = manipuladorAsync(async (req, res) => {
+  const [localidades, cias, pels, gps] = await Promise.all([
+    Policial.distinct('localidade', { ativo: true }),
+    Policial.distinct('cia', { ativo: true }),
+    Policial.distinct('pel', { ativo: true }),
+    Policial.distinct('gp', { ativo: true }),
+  ]);
+
+  res.json({
+    sucesso: true,
+    dados: {
+      localidades: localidades.filter(Boolean).sort(),
+      cias: cias.filter(Boolean).sort(),
+      pels: pels.filter(Boolean).sort(),
+      gps: gps.filter(Boolean).sort(),
+    },
+  });
+});
+
+/**
  * GET /policiais/:id
  */
 export const obterPorId = manipuladorAsync(async (req, res) => {

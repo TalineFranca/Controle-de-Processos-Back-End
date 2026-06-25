@@ -6,7 +6,6 @@ import {
   obterPorId,
   criar,
   marcarFeito,
-  marcarConferir,
   marcarNaoFeito,
   excluir,
 } from './controlador.js';
@@ -20,7 +19,6 @@ roteador.get('/dashboard', dashboard);
 roteador.get('/:id', obterPorId);
 roteador.post('/', criar);
 roteador.patch('/:id/feito', marcarFeito);
-roteador.patch('/:id/conferir', marcarConferir);
 roteador.patch('/:id/nao-feito', marcarNaoFeito);
 roteador.delete('/:id', excluir);
 

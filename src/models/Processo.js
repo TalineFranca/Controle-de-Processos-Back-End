@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-export const STATUS_PROCESSO = ['naoFeito', 'aConferir', 'feito'];
+export const STATUS_PROCESSO = ['naoFeito', 'feito'];
 
 const processoSchema = new mongoose.Schema(
   {

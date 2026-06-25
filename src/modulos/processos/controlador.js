@@ -35,6 +35,7 @@ export const listar = manipuladorAsync(async (req, res) => {
     dataInicio,
     dataFim,
     busca,
+    localidade,
     policial: policialId,
   } = req.query;
 
@@ -65,6 +66,9 @@ export const listar = manipuladorAsync(async (req, res) => {
     filtro.policial = { $in: policiais.map((p) => p._id) };
   }
 
+  const matchPolicial = {};
+  if (localidade) matchPolicial['policialInfo.localidade'] = { $regex: localidade, $options: 'i' };
+
   const pipeline = [
     { $match: filtro },
     {
@@ -76,6 +80,7 @@ export const listar = manipuladorAsync(async (req, res) => {
       },
     },
     { $unwind: { path: '$policialInfo', preserveNullAndEmptyArrays: true } },
+    ...(Object.keys(matchPolicial).length > 0 ? [{ $match: matchPolicial }] : []),
     {
       $sort: {
         dataRecebimento: 1,       
@@ -110,22 +115,38 @@ export const dashboard = manipuladorAsync(async (req, res) => {
   const amanha = new Date(hoje);
   amanha.setDate(amanha.getDate() + 1);
 
-  const [totalNaoFeito, totalAConferir, totalFeito, chegadosHoje, porStatus] = await Promise.all([
+  const [totalNaoFeito, totalFeito, chegadosHoje, porStatus, porLocalidade] = await Promise.all([
     Processo.countDocuments({ status: 'naoFeito' }),
-    Processo.countDocuments({ status: 'aConferir' }),
     Processo.countDocuments({ status: 'feito' }),
     Processo.countDocuments({ dataRecebimento: { $gte: hoje, $lt: amanha } }),
     Processo.aggregate([{ $group: { _id: '$status', total: { $sum: 1 } } }]),
+    Processo.aggregate([
+      { $match: { status: 'naoFeito' } },
+      {
+        $lookup: {
+          from: 'policials',
+          localField: 'policial',
+          foreignField: '_id',
+          as: 'pol',
+        },
+      },
+      { $unwind: { path: '$pol', preserveNullAndEmptyArrays: true } },
+      { $group: { _id: '$pol.localidade', total: { $sum: 1 } } },
+      { $sort: { total: -1 } },
+    ]),
   ]);
 
   res.json({
     sucesso: true,
     dados: {
       totalNaoFeito,
-      totalAConferir,
       totalFeito,
       chegadosHoje,
       porStatus,
+      porLocalidade: porLocalidade.map((l) => ({
+        localidade: l._id || 'Sem localidade',
+        total: l.total,
+      })),
     },
   });
 });
@@ -187,40 +208,15 @@ export const marcarFeito = manipuladorAsync(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// MARCAR PARA CONFERIR
-// (trabalho já foi feito, aguardando revisão antes de fechar)
-// ─────────────────────────────────────────────
-
-export const marcarConferir = manipuladorAsync(async (req, res) => {
-  const processo = await Processo.findById(req.params.id);
-  if (!processo) throw criarErro('Registro não encontrado', 404);
-
-  processo.status = 'aConferir';
-  processo.dataConclussao = null;
-  await processo.save();
-
-  res.json({ sucesso: true, dados: processo });
-});
-
-// ─────────────────────────────────────────────
-// MARCAR COMO NÃO FEITO (devolver para a fila)
-//
-// Usado quando a conferência encontra algo errado: o registro volta
-// para "Pendente" mantendo a dataRecebimento original, então ele
-// reaparece na fila na posição correta (data → antiguidade), sem
-// furar nem perder o lugar de ninguém. Se vier um motivo, é salvo
-// em observações para o próximo que for fazer saber o que corrigir.
+// MARCAR COMO NÃO FEITO
 // ─────────────────────────────────────────────
 
 export const marcarNaoFeito = manipuladorAsync(async (req, res) => {
   const processo = await Processo.findById(req.params.id);
   if (!processo) throw criarErro('Registro não encontrado', 404);
 
-  const { motivo } = req.body || {};
-
   processo.status = 'naoFeito';
   processo.dataConclussao = null;
-  if (motivo) processo.observacoes = motivo;
   await processo.save();
 
   res.json({ sucesso: true, dados: processo });
