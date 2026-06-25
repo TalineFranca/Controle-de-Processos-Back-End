@@ -4,25 +4,10 @@
  *  1. relatorioEfetivo_total.csv  — define a ORDEM DE ANTIGUIDADE do batalhão
  *     (posição da linha = quem é mais antigo, independente de localidade)
  *
- *  2. efetivo.csv (mapa da força)  — define a LOCALIDADE e SEÇÃO de cada policial
- *     (ex: "3º GP/1º PEL/2ª CIA/3º BPM (CHUPINGUAIA)")
- *
- * O cruzamento é feito por nome de guerra e nome completo (normalizado,
- * sem acentos, maiúsculas) para tolerar diferenças de encoding entre os arquivos.
- *
- * Campos salvos no banco:
- *   - ordemBatalhao   → posição no relatório total (1 = mais antigo do batalhão)
- *   - ordemHierarquica → índice do posto (0=TC, 1=MAJ... 11=CB, 12=SD) — mantido para filtros
- *   - nrOrdem          → número de ordem dentro da localidade (do mapa da força)
- *   - localidade       → cidade/seção (ex: "CHUPINGUAIA", "TRÂNSITO-VILHENA")
- *   - secaoOrigem      → seção completa do mapa da força
- *
- * Ordenação na fila de chegada (controlador.js):
- *   dataRecebimento ASC → ordemBatalhao ASC
+ *  2. efetivo.csv (mapa da força)  — define a LOCALIDADE, SEÇÃO, CIA, PEL, GP
  *
  * Uso:
  *   npm run seed
- *   CSV_ANTIGUIDADE=data/relatorioEfetivo_total.csv CSV_MAPA=data/efetivo.csv npm run seed
  */
 
 import { readFileSync } from 'fs';
@@ -54,42 +39,41 @@ function lerBuffer(caminho) {
   return tentativaUTF8;
 }
 
-// Normaliza string para comparação: remove acentos, maiúsculas, espaços extras
 function norm(s) {
   return (s || '')
     .toUpperCase()
     .trim()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')  // remove diacríticos
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ');
 }
 
 // ─────────────────────────────────────────────
 // FONTE 1: relatorioEfetivo_total.csv
-// Delimitador: ponto-e-vírgula
-// Colunas: Posto/Grad ; Quadro ; Nome ; Nome de guerra ; Dt Inclusão ; Dt Promoção ; Unidade
-// A POSIÇÃO DA LINHA (1-based, pulando cabeçalhos) = ordem de antiguidade do batalhão
 // ─────────────────────────────────────────────
 
 function lerAntiguidade(caminho) {
   const conteudo = lerBuffer(caminho);
   const linhas = conteudo.split('\n').map(l => l.split(';').map(c => c.trim()));
 
-  const mapa = new Map(); // chave normalizada → { ordem, posto, nomeCompleto, nomeGuerra }
-
+  const mapa = new Map();
   let ordem = 0;
+
   for (const cols of linhas) {
-    // Pula linhas vazias e cabeçalho
     if (!cols[0] || cols[0].toLowerCase().includes('posto') || cols[0] === '') continue;
 
     ordem++;
-    const posto       = cols[0] || '';
+    const posto        = cols[0] || '';
     const nomeCompleto = cols[2] || '';
-    const nomeGuerra  = cols[3] || '';
+    const nomeGuerra   = cols[3] || '';
+    // Unidade completa do relatório (ex: "PM / ... / 3º BPM / 4º CIA PM / 2º PEL PM")
+    const unidadeTotal = cols[6] || '';
 
-    const entrada = { ordem, posto, nomeCompleto, nomeGuerra };
+    // Extrai CIA / PEL / GP da string de unidade do relatório total
+    const { cia, pel, gp } = extrairSubunidades(unidadeTotal, '/');
 
-    // Indexa tanto por nome de guerra quanto nome completo para maximizar o cruzamento
+    const entrada = { ordem, posto, nomeCompleto, nomeGuerra, unidadeTotal, cia, pel, gp };
+
     if (nomeGuerra)   mapa.set(norm(nomeGuerra), entrada);
     if (nomeCompleto) mapa.set(norm(nomeCompleto), entrada);
   }
@@ -98,23 +82,33 @@ function lerAntiguidade(caminho) {
 }
 
 // ─────────────────────────────────────────────
+// EXTRAÇÃO DE CIA / PEL / GP
+// ─────────────────────────────────────────────
+
+function extrairSubunidades(texto, sep) {
+  const partes = (texto || '').split(sep).map(p => p.trim());
+  let cia = '', pel = '', gp = '';
+  for (const p of partes) {
+    if (/CIA PM/i.test(p) && !cia) cia = p;
+    if (/PEL PM/i.test(p) && !pel) pel = p;
+    if (/GP P[MO]/i.test(p) && !gp) gp = p;
+  }
+  return { cia, pel, gp };
+}
+
+// ─────────────────────────────────────────────
 // FONTE 2: efetivo.csv (mapa da força)
-// Delimitador: vírgula
-// Colunas: NR.ORDEM , POSTO/GRAD , NOME DE GUERRA , NOME COMPLETO , FUNÇÃO
-// Os cabeçalhos de seção identificam localidade e unidade
 // ─────────────────────────────────────────────
 
 function extrairLocalidade(nomeSec) {
-  // Pega o conteúdo entre parênteses: "3º GP/2º PEL/4ª CIA/3º BPM (PIMENTEIRAS DO OESTE)"
-  // → "PIMENTEIRAS DO OESTE"
   const match = nomeSec.match(/\(([^)]+)\)/);
   if (!match) return 'VILHENA';
-  let loc = match[1].trim().toUpperCase();
-  // Casos especiais de variação de nome
-  loc = loc.replace('TRANÂSITO-VILHENA', 'TRÂNSITO-VILHENA');
-  loc = loc.replace('GUAPORÃ', 'GUAPORÉ');
-  loc = loc.replace('BOA ESPERANÃA', 'BOA ESPERANÇA');
-  loc = loc.replace('PIMENTEIRAS DO OSTE', 'PIMENTEIRAS DO OESTE');
+  let loc = match[1].trim().toUpperCase()
+    .replace('TRANSITO-VILHENA', 'TRÂNSITO-VILHENA')
+    .replace('TRANÂSITO-VILHENA', 'TRÂNSITO-VILHENA')
+    .replace('GUAPORÃ', 'GUAPORÉ')
+    .replace('BOA ESPERANÃA', 'BOA ESPERANÇA')
+    .replace('PIMENTEIRAS DO OSTE', 'PIMENTEIRAS DO OESTE');
   return loc;
 }
 
@@ -131,12 +125,12 @@ function lerMapaForca(caminho) {
   const linhas = conteudo.split('\n').map(l => l.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
 
   const policiais = [];
-  let secaoAtual    = 'GAB COMANDO/3º BPM (VILHENA)';
+  let secaoAtual     = 'GAB COMANDO/3º BPM (VILHENA)';
   let localidadeAtual = 'VILHENA';
 
   for (const cols of linhas) {
     if (ehCabecalhoSecao(cols)) {
-      secaoAtual    = cols[0].trim();
+      secaoAtual      = cols[0].trim();
       localidadeAtual = extrairLocalidade(secaoAtual);
       continue;
     }
@@ -151,6 +145,9 @@ function lerMapaForca(caminho) {
 
     if (!nomeCompleto && !nomeGuerra) continue;
 
+    // Extrai CIA/PEL/GP do cabeçalho da seção (ex: "3º GP/1º PEL/2ª CIA/3º BPM (CHUPINGUAIA)")
+    const { cia, pel, gp } = extrairSubunidades(secaoAtual, '/');
+
     policiais.push({
       nrOrdem,
       postoMapa,
@@ -159,6 +156,9 @@ function lerMapaForca(caminho) {
       funcao,
       secaoOrigem: secaoAtual,
       localidade: localidadeAtual,
+      cia,
+      pel,
+      gp,
     });
   }
 
@@ -166,51 +166,57 @@ function lerMapaForca(caminho) {
 }
 
 // ─────────────────────────────────────────────
-// CRUZAMENTO: mapa da força + antiguidade
+// CRUZAMENTO
 // ─────────────────────────────────────────────
 
 function cruzarDados(mapaForca, mapaAntiguidade) {
   const resultado = [];
+  const nomesNaForca = new Set();
   let semCorrespondencia = 0;
 
   for (const pol of mapaForca) {
-    // Tenta encontrar por nome de guerra primeiro, depois por nome completo
     const dadosAnt =
       mapaAntiguidade.get(norm(pol.nomeGuerra)) ||
       mapaAntiguidade.get(norm(pol.nomeCompleto));
 
     if (!dadosAnt) {
       semCorrespondencia++;
-      console.warn(`  ⚠ Sem antiguidade: ${pol.nomeGuerra} / ${pol.nomeCompleto} (${pol.secaoOrigem.slice(0, 40)})`);
+      console.warn(`  ⚠ Sem antiguidade: ${pol.nomeGuerra} / ${pol.nomeCompleto} (${pol.secaoOrigem.slice(0, 50)})`);
     }
 
-    // Posto vem do relatório de antiguidade quando disponível (mais confiável)
-    // Fallback: posto do mapa da força
     const postoFinal = dadosAnt?.posto || pol.postoMapa;
+    const nomeCompletoFinal = dadosAnt?.nomeCompleto || pol.nomeCompleto;
+
+    nomesNaForca.add(norm(nomeCompletoFinal));
+    if (dadosAnt?.nomeGuerra) nomesNaForca.add(norm(dadosAnt.nomeGuerra));
+
+    // CIA/PEL/GP: prioriza relatório total (tem dados mais limpos), fallback mapa da força
+    const ciaFinal = dadosAnt?.cia || pol.cia;
+    const pelFinal = dadosAnt?.pel || pol.pel;
+    const gpFinal  = dadosAnt?.gp  || pol.gp;
 
     resultado.push({
       nrOrdem:          pol.nrOrdem,
       postoGraduacao:   postoFinal,
       nomeGuerra:       dadosAnt?.nomeGuerra || pol.nomeGuerra,
-      nomeCompleto:     dadosAnt?.nomeCompleto || pol.nomeCompleto,
+      nomeCompleto:     nomeCompletoFinal,
       funcao:           pol.funcao,
       localidade:       pol.localidade,
       secaoOrigem:      pol.secaoOrigem,
-      // Ordem de antiguidade do BATALHÃO INTEIRO (1 = mais antigo)
-      // Se não encontrou no relatório, vai para o final (9999)
+      cia:              ciaFinal,
+      pel:              pelFinal,
+      gp:               gpFinal,
       ordemBatalhao:    dadosAnt?.ordem ?? 9999,
-      // Índice do posto — mantido para compatibilidade com filtros existentes
       ordemHierarquica: obterOrdemHierarquica(postoFinal),
       ativo: true,
     });
   }
 
   if (semCorrespondencia > 0) {
-    console.warn(`\n  ⚠ ${semCorrespondencia} policiais sem correspondência no relatório de antiguidade.`);
-    console.warn('    Eles serão cadastrados com ordemBatalhao=9999 (aparecerão por último na fila).\n');
+    console.warn(`\n  ⚠ ${semCorrespondencia} policiais sem correspondência no relatório.\n`);
   }
 
-  return resultado;
+  return { resultado, nomesNaForca };
 }
 
 // ─────────────────────────────────────────────
@@ -228,40 +234,36 @@ async function executarSeed() {
   await mongoose.connect(mongoUri);
   console.log('[MongoDB] Conectado ✓\n');
 
-  // Lê as duas fontes
   const mapaAntiguidade = lerAntiguidade(CSV_ANTIGUIDADE);
   console.log(` Relatório de antiguidade: ${mapaAntiguidade.size / 2} policiais indexados`);
 
   const mapaForca = lerMapaForca(CSV_MAPA);
   console.log(` Mapa da força: ${mapaForca.length} policiais encontrados\n`);
 
-  // Cruza os dados
-  const policiais = cruzarDados(mapaForca, mapaAntiguidade);
+  const { resultado: policiais, nomesNaForca } = cruzarDados(mapaForca, mapaAntiguidade);
 
-  // Upsert: atualiza pelo nomeCompleto normalizado
   let inseridos = 0;
   let atualizados = 0;
 
   for (const p of policiais) {
-    const resultado = await Policial.updateOne(
-      // Busca por nomeCompleto ignorando acentos (normalizado)
+    const res = await Policial.updateOne(
       { nomeCompleto: { $regex: new RegExp('^' + p.nomeCompleto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') } },
       { $set: p },
       { upsert: true }
     );
-    if (resultado.upsertedCount) inseridos++;
+    if (res.upsertedCount) inseridos++;
     else atualizados++;
   }
 
-  console.log(`\n✅ Seed concluído!`);
+  console.log(`✅ Seed concluído!`);
   console.log(`   Inseridos  : ${inseridos}`);
   console.log(`   Atualizados: ${atualizados}`);
 
-  // Amostra dos primeiros por antiguidade
-  console.log('\n📋 Amostra (primeiros 10 por antiguidade do batalhão):');
+  // Amostra
+  console.log('\n📋 Amostra (primeiros 10 por antiguidade):');
   const amostra = await Policial.find({}).sort({ ordemBatalhao: 1 }).limit(10);
   amostra.forEach(p =>
-    console.log(`   [${p.ordemBatalhao}] ${p.postoGraduacao} ${p.nomeGuerra} — ${p.localidade}`)
+    console.log(`   [${p.ordemBatalhao}] ${p.postoGraduacao} ${p.nomeGuerra} — ${p.localidade} ${p.cia} ${p.pel} ${p.gp}`)
   );
 
   // Usuário padrão

@@ -4,7 +4,7 @@ import { manipuladorAsync, criarErro, respostaPaginada } from '../../utils/auxil
 /**
  * GET /policiais
  * Lista policiais com filtros e paginação.
- * Ordenação padrão: hierarquia (maior posto primeiro), depois nrOrdem.
+ * Ordenação padrão: ordemBatalhao ASC (ordem de antiguidade do batalhão inteiro).
  */
 export const listar = manipuladorAsync(async (req, res) => {
   const {
@@ -14,6 +14,9 @@ export const listar = manipuladorAsync(async (req, res) => {
     unidade,
     localidade,
     postoGraduacao,
+    cia,
+    pel,
+    gp,
     ativo = 'true',
   } = req.query;
 
@@ -25,6 +28,9 @@ export const listar = manipuladorAsync(async (req, res) => {
   if (unidade) filtro.unidade = { $regex: unidade, $options: 'i' };
   if (localidade) filtro.localidade = { $regex: localidade, $options: 'i' };
   if (postoGraduacao) filtro.postoGraduacao = { $regex: postoGraduacao, $options: 'i' };
+  if (cia) filtro.cia = { $regex: cia, $options: 'i' };
+  if (pel) filtro.pel = { $regex: pel, $options: 'i' };
+  if (gp) filtro.gp = { $regex: gp, $options: 'i' };
 
   if (busca) {
     filtro.$or = [
@@ -37,7 +43,7 @@ export const listar = manipuladorAsync(async (req, res) => {
   const [policiais, total] = await Promise.all([
     Policial.find(filtro)
       .select('-__v')
-      .sort({ ordemHierarquica: 1, nrOrdem: 1 })
+      .sort({ ordemBatalhao: 1 })
       .skip(skip)
       .limit(parseInt(limite)),
     Policial.countDocuments(filtro),
@@ -48,17 +54,23 @@ export const listar = manipuladorAsync(async (req, res) => {
 
 /**
  * GET /policiais/unidades
- * Retorna lista de unidades únicas para filtros.
+ * Retorna listas de localidades, CIAs, PELs, GPs únicos para os filtros.
  */
 export const listarUnidades = manipuladorAsync(async (req, res) => {
-  const unidades = await Policial.distinct('unidade', { ativo: true });
-  const localidades = await Policial.distinct('localidade', { ativo: true });
+  const [localidades, cias, pels, gps] = await Promise.all([
+    Policial.distinct('localidade', { ativo: true }),
+    Policial.distinct('cia', { ativo: true }),
+    Policial.distinct('pel', { ativo: true }),
+    Policial.distinct('gp', { ativo: true }),
+  ]);
 
   res.json({
     sucesso: true,
     dados: {
-      unidades: unidades.filter(Boolean).sort(),
       localidades: localidades.filter(Boolean).sort(),
+      cias: cias.filter(Boolean).sort(),
+      pels: pels.filter(Boolean).sort(),
+      gps: gps.filter(Boolean).sort(),
     },
   });
 });
@@ -78,7 +90,11 @@ export const obterPorId = manipuladorAsync(async (req, res) => {
  * Atualiza dados de um policial (admin/operador).
  */
 export const atualizar = manipuladorAsync(async (req, res) => {
-  const camposPermitidos = ['funcao', 'unidade', 'subunidade', 'localidade', 'matricula', 'ativo', 'nomeCompleto', 'nomeGuerra', 'postoGraduacao'];
+  const camposPermitidos = [
+    'funcao', 'unidade', 'subunidade', 'localidade', 'matricula',
+    'ativo', 'nomeCompleto', 'nomeGuerra', 'postoGraduacao',
+    'cia', 'pel', 'gp',
+  ];
   const atualizacao = {};
 
   for (const campo of camposPermitidos) {

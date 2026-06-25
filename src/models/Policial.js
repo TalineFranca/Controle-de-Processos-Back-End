@@ -75,6 +75,22 @@ const policialSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    // Campos de subunidade hierárquica (extraídos do secaoOrigem)
+    cia: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    pel: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    gp: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     localidade: {
       type: String,
       trim: true,
@@ -101,6 +117,8 @@ const policialSchema = new mongoose.Schema(
 policialSchema.index({ nomeCompleto: 1 });
 policialSchema.index({ ordemBatalhao: 1 });
 policialSchema.index({ ordemHierarquica: 1, nrOrdem: 1 });
+policialSchema.index({ cia: 1, pel: 1, gp: 1 });
+policialSchema.index({ localidade: 1 });
 
 const Policial = mongoose.model('Policial', policialSchema);
 
