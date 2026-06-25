@@ -31,21 +31,30 @@ const CSV_MAPA        = process.env.CSV_MAPA        || resolve(__dirname, '../..
 
 function lerBuffer(caminho) {
   const buffer = readFileSync(caminho);
+  // Remove BOM UTF-8 se presente
   if (buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
     return buffer.slice(3).toString('utf-8');
   }
-  const tentativaUTF8 = buffer.toString('utf-8');
-  if (tentativaUTF8.includes('\uFFFD')) return buffer.toString('latin1');
-  return tentativaUTF8;
+  // Tenta UTF-8 primeiro (efetivo.csv é UTF-8)
+  try {
+    const utf8 = buffer.toString('utf-8');
+    // Verifica se tem caracteres de substituição inválidos (indica que NÃO é UTF-8)
+    if (!utf8.includes('\uFFFD')) return utf8;
+  } catch (_) { /* fallthrough */ }
+  // Fallback latin1 (relatorioEfetivo_total.csv é latin1)
+  return buffer.toString('latin1');
 }
 
 function norm(s) {
   return (s || '')
+    .replace(/\u00a0/g, ' ')   // non-breaking space → espaço normal
+    .replace(/\u00c2\u00a0/g, ' ') // Â\xa0 (double-encoded NBSP) → espaço
     .toUpperCase()
     .trim()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ');
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // ─────────────────────────────────────────────
@@ -117,6 +126,9 @@ function ehCabecalhoSecao(cols) {
   if (!c0) return false;
   if (/^NR\.?\s*ORDEM$/i.test(c0)) return false;
   if (/^\d+$/.test(c0)) return false;
+  // Ignora linhas de rodapé/assinatura (sem padrão de seção operacional)
+  // Seções válidas contêm '/' ou palavras como BPM, CIA, PEL, GP, GAB, ESTADO MAIOR, FORMAÇÃO, PCSv
+  if (!/[/]|BPM|CIA|PEL|\bGP\b|GAB|ESTADO\s+MAIOR|FORMA[ÇC]|PCSv|SANIT/i.test(c0)) return false;
   return /[a-zA-ZÀ-ÿ]/.test(c0);
 }
 
