@@ -72,7 +72,7 @@ function lerAntiguidade(caminho) {
 
     policiais.push({
       ordemBatalhao:    ordem,
-      nrOrdem:          ordem, // hoje, nrOrdem = posição na antiguidade do batalhão
+      nrOrdem:          ordem, 
       postoGraduacao:   posto,
       quadro,
       nomeGuerra:       nomeGuerra || nomeCompleto,

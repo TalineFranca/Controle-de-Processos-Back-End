@@ -18,14 +18,10 @@ const ambiente = {
     ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
     : ['http://localhost:5173', 'http://localhost:3001'],
   registro: {
-    // Opcional: se definido, só permite auto-cadastro com e-mails desse domínio.
-    // Ex: REGISTRO_DOMINIO_PERMITIDO=pm.ro.gov.br
-    // Deixe vazio/sem definir para permitir qualquer e-mail.
     dominioPermitido: process.env.REGISTRO_DOMINIO_PERMITIDO || '',
   },
 };
 
-// Aviso em produção com segredo padrão
 if (ambiente.nodeEnv === 'production' && ambiente.jwt.segredo.startsWith('dev_secret')) {
   console.error('⚠️  ERRO: JWT_SECRET não definido! Configure a variável de ambiente antes de usar em produção.');
   process.exit(1);

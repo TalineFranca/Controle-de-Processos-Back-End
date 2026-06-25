@@ -9,7 +9,6 @@ import ambiente from './config/ambiente.js';
 import { tratadorDeErros } from './middlewares/tratadorDeErros.js';
 import especificacaoSwagger from './config/swagger.js';
 
-// Rotas dos módulos
 import rotasAuth from './modulos/auth/rotas.js';
 import rotasUsuarios from './modulos/usuarios/rotas.js';
 import rotasPoliciais from './modulos/policiais/rotas.js';
@@ -27,7 +26,6 @@ app.use(helmet());
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Permite requests sem origin (ex: Postman, curl)
       if (!origin) return callback(null, true);
       if (ambiente.corsOrigens.includes(origin)) return callback(null, true);
       callback(new Error(`CORS: origin ${origin} não permitida`));
@@ -40,7 +38,7 @@ app.use(
 
 // Rate limiting global
 const limitador = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
+  windowMs: 15 * 60 * 1000, 
   max: 1000,
   standardHeaders: true,
   legacyHeaders: false,

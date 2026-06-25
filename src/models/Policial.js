@@ -80,7 +80,6 @@ const policialSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
-    // Campos de subunidade hierárquica (extraídos do secaoOrigem)
     cia: {
       type: String,
       trim: true,

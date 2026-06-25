@@ -47,7 +47,6 @@ export const loginLocal = manipuladorAsync(async (req, res) => {
     nomeUsuario: nomeUsuario.toLowerCase().trim(),
   }).select('+senhaHash');
 
-  // Mensagem genérica para não revelar se o usuário existe
   if (!usuario || !usuario.senhaHash) {
     throw criarErro('Usuário ou senha inválidos', 401);
   }
