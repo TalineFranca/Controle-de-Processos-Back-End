@@ -1,8 +1,7 @@
 import Processo, { STATUS_PROCESSO } from '../../models/Processo.js';
 import Policial from '../../models/Policial.js';
-import { manipuladorAsync, criarErro, respostaPaginada } from '../../utils/auxiliares.js';
+import { manipuladorAsync, criarErro, respostaPaginada, regexSemAcento } from '../../utils/auxiliares.js';
 
-// Converte "YYYY-MM-DD" para Date sem risco de virar o dia anterior por fuso
 function parseDateBR(valor) {
   if (!valor) return new Date();
   if (valor instanceof Date) return valor;
@@ -11,22 +10,6 @@ function parseDateBR(valor) {
   return new Date(valor);
 }
 
-// ─────────────────────────────────────────────
-// LISTAGEM
-// ─────────────────────────────────────────────
-
-/**
- * GET /processos
- *
- * ORDENAÇÃO DA FILA DE CHEGADA:
- *   1. dataRecebimento ASC  — quem chegou primeiro é atendido primeiro
- *   2. ordemBatalhao ASC    — dentro do mesmo dia, quem é mais antigo no
- *                             batalhão vem antes (posição no almanaque)
- *
- * Isso garante que, independente da localidade, a antiguidade real do
- * batalhão sempre é respeitada. Um CAP mais antigo vem antes de outro
- * CAP mais novo, mesmo sendo de cidades diferentes.
- */
 export const listar = manipuladorAsync(async (req, res) => {
   const {
     pagina = 1,
@@ -56,10 +39,11 @@ export const listar = manipuladorAsync(async (req, res) => {
   if (policialId) filtro.policial = policialId;
 
   if (busca) {
+    const regex = regexSemAcento(busca);
     const policiais = await Policial.find({
       $or: [
-        { nomeCompleto: { $regex: busca, $options: 'i' } },
-        { nomeGuerra: { $regex: busca, $options: 'i' } },
+        { nomeCompleto: regex },
+        { nomeGuerra: regex },
       ],
     }).select('_id');
     filtro.policial = { $in: policiais.map((p) => p._id) };
@@ -78,8 +62,8 @@ export const listar = manipuladorAsync(async (req, res) => {
     { $unwind: { path: '$policialInfo', preserveNullAndEmptyArrays: true } },
     {
       $sort: {
-        dataRecebimento: 1,       
-        'policialInfo.ordemBatalhao': 1,  
+        dataRecebimento: 1,
+        'policialInfo.ordemBatalhao': 1,
       },
     },
   ];
@@ -99,10 +83,6 @@ export const listar = manipuladorAsync(async (req, res) => {
 
   res.json(respostaPaginada(processos, total, pagina, parseInt(limite)));
 });
-
-// ─────────────────────────────────────────────
-// DASHBOARD
-// ─────────────────────────────────────────────
 
 export const dashboard = manipuladorAsync(async (req, res) => {
   const hoje = new Date();
@@ -130,10 +110,6 @@ export const dashboard = manipuladorAsync(async (req, res) => {
   });
 });
 
-// ─────────────────────────────────────────────
-// OBTER POR ID
-// ─────────────────────────────────────────────
-
 export const obterPorId = manipuladorAsync(async (req, res) => {
   const processo = await Processo.findById(req.params.id)
     .populate('policial', '-__v')
@@ -144,10 +120,6 @@ export const obterPorId = manipuladorAsync(async (req, res) => {
 
   res.json({ sucesso: true, dados: processo });
 });
-
-// ─────────────────────────────────────────────
-// CRIAR
-// ─────────────────────────────────────────────
 
 export const criar = manipuladorAsync(async (req, res) => {
   const { policialId, dataRecebimento, numeroProcesso } = req.body;
@@ -171,10 +143,6 @@ export const criar = manipuladorAsync(async (req, res) => {
   res.status(201).json({ sucesso: true, dados: processo });
 });
 
-// ─────────────────────────────────────────────
-// MARCAR COMO FEITO
-// ─────────────────────────────────────────────
-
 export const marcarFeito = manipuladorAsync(async (req, res) => {
   const processo = await Processo.findById(req.params.id);
   if (!processo) throw criarErro('Registro não encontrado', 404);
@@ -186,11 +154,6 @@ export const marcarFeito = manipuladorAsync(async (req, res) => {
   res.json({ sucesso: true, dados: processo });
 });
 
-// ─────────────────────────────────────────────
-// MARCAR PARA CONFERIR
-// (trabalho já foi feito, aguardando revisão antes de fechar)
-// ─────────────────────────────────────────────
-
 export const marcarConferir = manipuladorAsync(async (req, res) => {
   const processo = await Processo.findById(req.params.id);
   if (!processo) throw criarErro('Registro não encontrado', 404);
@@ -201,16 +164,6 @@ export const marcarConferir = manipuladorAsync(async (req, res) => {
 
   res.json({ sucesso: true, dados: processo });
 });
-
-// ─────────────────────────────────────────────
-// MARCAR COMO NÃO FEITO (devolver para a fila)
-//
-// Usado quando a conferência encontra algo errado: o registro volta
-// para "Pendente" mantendo a dataRecebimento original, então ele
-// reaparece na fila na posição correta (data → antiguidade), sem
-// furar nem perder o lugar de ninguém. Se vier um motivo, é salvo
-// em observações para o próximo que for fazer saber o que corrigir.
-// ─────────────────────────────────────────────
 
 export const marcarNaoFeito = manipuladorAsync(async (req, res) => {
   const processo = await Processo.findById(req.params.id);
@@ -225,10 +178,6 @@ export const marcarNaoFeito = manipuladorAsync(async (req, res) => {
 
   res.json({ sucesso: true, dados: processo });
 });
-
-// ─────────────────────────────────────────────
-// EXCLUIR
-// ─────────────────────────────────────────────
 
 export const excluir = manipuladorAsync(async (req, res) => {
   const processo = await Processo.findByIdAndDelete(req.params.id);

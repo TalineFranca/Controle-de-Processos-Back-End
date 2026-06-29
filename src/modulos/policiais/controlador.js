@@ -1,11 +1,6 @@
 import Policial from '../../models/Policial.js';
-import { manipuladorAsync, criarErro, respostaPaginada } from '../../utils/auxiliares.js';
+import { manipuladorAsync, criarErro, respostaPaginada, regexSemAcento } from '../../utils/auxiliares.js';
 
-/**
- * GET /policiais
- * Lista policiais com filtros e paginação.
- * Ordenação padrão: ordemBatalhao ASC (ordem de antiguidade do batalhão inteiro).
- */
 export const listar = manipuladorAsync(async (req, res) => {
   const {
     pagina = 1,
@@ -23,9 +18,10 @@ export const listar = manipuladorAsync(async (req, res) => {
   if (postoGraduacao) filtro.postoGraduacao = { $regex: postoGraduacao, $options: 'i' };
 
   if (busca) {
+    const regex = regexSemAcento(busca);
     filtro.$or = [
-      { nomeCompleto: { $regex: busca, $options: 'i' } },
-      { nomeGuerra: { $regex: busca, $options: 'i' } },
+      { nomeCompleto: regex },
+      { nomeGuerra: regex },
       { matricula: { $regex: busca, $options: 'i' } },
     ];
   }
@@ -42,9 +38,6 @@ export const listar = manipuladorAsync(async (req, res) => {
   res.json(respostaPaginada(policiais, total, pagina, limite));
 });
 
-/**
- * GET /policiais/:id
- */
 export const obterPorId = manipuladorAsync(async (req, res) => {
   const policial = await Policial.findById(req.params.id).select('-__v');
   if (!policial) throw criarErro('Policial não encontrado', 404);
@@ -52,10 +45,6 @@ export const obterPorId = manipuladorAsync(async (req, res) => {
   res.json({ sucesso: true, dados: policial });
 });
 
-/**
- * PATCH /policiais/:id
- * Atualiza dados de um policial (admin/operador).
- */
 export const atualizar = manipuladorAsync(async (req, res) => {
   const camposPermitidos = [
     'funcao', 'unidade', 'subunidade', 'localidade', 'matricula',
